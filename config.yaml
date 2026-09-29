@@ -1,0 +1,51 @@
+# ============================================================
+# GMB Automation Platform — config
+# Pehli baar README.md padho (Google API approval sabse important step hai)
+# ============================================================
+
+app:
+  port: 5003
+  host: "127.0.0.1"
+  db_path: "gmb_automation.db"   # project folder me banega (gitignored)
+
+# ---- Safety defaults — halke me mat badlo ----
+safety:
+  dry_run: true                   # true = Google par kuch publish NAHI hoga; scheduler sirf drafts rakhega
+  require_approval_posts: true    # post publish se pehle approval mandatory
+  require_approval_replies: true  # review reply bhejne se pehle approval mandatory
+  require_approval_media: true    # photo/video upload se pehle approval mandatory
+  require_approval_profile_edits: true  # HIGH RISK: category/description change se Google re-verification trigger ho sakta hai
+  auto_publish_default: false     # per-client auto-publish toggle; default OFF rakho (UI me warning ke saath)
+
+scheduler:
+  publish_check_minutes: 15       # kitni der me scheduled posts check hon
+  review_check_minutes: 60        # kitni der me naye reviews check hon
+  reminder_hour: 9                # roz subah pending approvals ka reminder (log me)
+
+posting:
+  posts_per_week: 2
+  post_days: ["tuesday", "thursday"]   # hafte ke kin din post jayega
+  # PDF Section 6 content mix (hafte -> 2 post types)
+  content_mix:
+    week1: ["service-focused", "educational"]
+    week2: ["location-keyword", "faq"]
+    week3: ["service-focused", "trust-benefit"]
+    week4: ["offer", "seasonal"]
+
+openai:
+  enabled: false                  # true karne ke liye OPENAI_API_KEY env var set karo (post drafts enhance honge)
+
+dataforseo:
+  enabled: false
+  # login/password yahan mat likho — env vars use karo: DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD
+
+# Naye clients yahan seed kar sakte ho — pehli boot par DB me import honge, uske baad UI se manage karo.
+# Example:
+# clients:
+#   - name: "Sharma Dental Clinic"
+#     business_name: "Sharma Dental Clinic"
+#     city: "Noida"
+#     phone: "+91 98100 12345"
+#     website: "https://sharmadental.in"
+#     services: ["Root Canal", "Braces", "Teeth Cleaning"]
+clients: []

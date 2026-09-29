@@ -1,0 +1,15 @@
+# Secrets — kabhi commit mat karo
+tokens/
+*.json
+!requirements.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/jsconfig.json
+gmb_automation.db
+reports/
+.venv/
+__pycache__/
+*.pyc
+run.log
+node_modules/
+frontend/node_modules/

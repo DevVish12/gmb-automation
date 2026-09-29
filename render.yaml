@@ -1,0 +1,17 @@
+# Render.com one-click deploy blueprint (free tier).
+# GitHub repo connect karo -> Render Dashboard -> New -> Blueprint -> ye file auto-detect hogi.
+services:
+  - type: web
+    name: gmb-automation-demo
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: START_SCHEDULER
+        value: "1"
+      # NOTE: free tier ki disk ephemeral hai — redeploy/restart par SQLite DB reset
+      # ho jayegi. Demo ke liye koi dikkat nahi: Settings -> "Add demo client"
+      # dabate hi demo data wapas aa jata hai.
