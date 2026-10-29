@@ -224,15 +224,35 @@ def api_client_autopublish(slug):
 
 
 # ================= OAUTH =================
+def resolve_secrets_path(client):
+    """OAuth secrets JSON ka path — server default, har client ke liye same.
+
+    Simplification: operator ko har client me path daalna nahi padta.
+    1. GMB_OAUTH_SECRETS env var (agar set hai aur file maujood hai)
+    2. App folder me client_secrets.json (server par bas ye ek file rakhni hai)
+    3. Fallback: client ki purani saved path (pehle ki settings na toote)
+    """
+    env_path = os.environ.get("GMB_OAUTH_SECRETS", "").strip()
+    if env_path and Path(env_path).exists():
+        return env_path
+    app_dir_file = Path(__file__).resolve().parent / "client_secrets.json"
+    if app_dir_file.exists():
+        return str(app_dir_file)
+    saved = (client.get("secrets_path") or "").strip()
+    if saved and Path(saved).exists():
+        return saved
+    return env_path or str(app_dir_file)
+
+
 @app.route("/api/connect/<slug>")
 def api_connect(slug):
     c = get_client_or_404(slug)
     if not c:
         return err("Client nahi mila", 404)
-    secrets = (c.get("secrets_path") or "").strip()
+    secrets = resolve_secrets_path(c)
     if not secrets or not Path(secrets).exists():
-        return err("OAuth client secrets file nahi mili. Google Cloud me OAuth client banao, "
-                   "JSON download karo, aur uska path client settings me save karo (README Step 3).")
+        return err("OAuth client secrets file nahi mili. Server par client_secrets.json rakho "
+                   "(app folder me) ya GMB_OAUTH_SECRETS env var set karo (README Step 3).")
     redirect_uri = url_for("oauth_callback", _external=True)
     flow = auth.build_flow(secrets, redirect_uri)
     session["oauth_slug"] = slug
