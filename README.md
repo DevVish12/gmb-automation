@@ -39,17 +39,26 @@ GBP API **access-gated** hai. Sirf API enable karne se kaam nahi chalega — nay
 5. Approval me **kuch din se ~2 hafte** lagte hain. Confirm email ayega; Cloud Console → Quotas me **0 QPM → 300 QPM** dikhega tab samjho approve hua.
 
 **Step 3 — OAuth client banao**
-1. Cloud Console → APIs & Services → Credentials → Create Credentials → **OAuth client ID** → type **Desktop app**.
-2. Download JSON karo (yeh `client_secrets.json` hai) — ise apne system par kahin safe rakho.
-3. Consent screen par scope add karo: `https://www.googleapis.com/auth/business.manage`
-4. Redirect URI add karo (Web application type ho to): `http://127.0.0.1:5003/oauth/callback`
+1. Cloud Console → APIs & Services → Credentials → Create Credentials → **OAuth client ID** → type **Web application** (live site ke liye; Desktop app sirf local use ke liye tha).
+2. Download JSON karo (yeh `client_secrets.json` hai) — ise server par app folder me `client_secrets.json` ke naam se rakho (ek baar, sab clients ke liye).
+3. Consent screen par scope add karo: `https://www.googleapis.com/auth/business.manage` — aur operator login (Google sign-in) ke liye `openid`, `userinfo.email`, `userinfo.profile` bhi.
+4. Redirect URI add karo: live domain ka `/oauth/callback` (jaise `https://gmb-demo.duckdns.org/oauth/callback`) aur login ke liye `/auth/google/callback` (jaise `https://gmb-demo.duckdns.org/auth/google/callback`).
    - Desktop-app type me redirect URI ki zarurat nahi padti; OAuth callback isi app me handle hota hai.
 
 **Step 4 — Client connect karo**
-1. UI me Clients → client add karo → OAuth secrets JSON ka path save karo → **🔗 Google se Connect** dabao.
+1. UI me Clients → client add karo → **🔗 Google se Connect** dabao. (Secrets JSON server par ek baar rakhni hai — har client me path daalne ki zaroorat nahi.)
 2. Browser me Google login + "business.manage" permission allow karo.
 3. Token `tokens/<client-slug>.json` me save hoga (gitignored — kisi ko mat bhejo).
 4. Connect ke baad client ke **account_id / location_id** bharo (pehli baar khaali the to).
+
+## SaaS: operator accounts, roles aur Demo/Live mode
+
+- **Sign up / Login:** Login screen se — email + password, ya Google sign-in. Passwords hashed save hote hain (kabhi plaintext nahi). Account ki koi limit nahi.
+- **Super admin:** Server par pehla registered user super admin banta hai. Wo saare users dekh sakta hai, kisi ka account enable/disable kar sakta hai, aur login history dekh sakta hai (Admin page).
+- **Login history:** Har login (user, time, IP) `login_history` table me record hota hai.
+- **Data separation:** Har client ka ek owner (operator) hota hai. Operator ko sirf apne clients, drafts, reviews, posts aur stats dikhte hain. Super admin ko sab dikhte hain. Ek operator ka data dusre ko kabhi nahi dikhta.
+- **Demo/Live mode:** Top-right switch. Live mode me demo client (Sharma Dental Clinic) chhupa rehta hai, sirf real clients dikhte hain. Demo mode me demo data dikhta hai. Demo data kabhi delete nahi hota, sirf filter hota hai.
+- **Central OAuth:** GBP connection ke liye wahi ek server-default `client_secrets.json` aur wahi central Cloud project + approval sab operators ke liye kaam karta hai. Operators ko Cloud project, API ya JSON ka kuch nahi karna — sirf sign up → client add → Connect Google → kaam.
 
 ## Bina API approval ke — manual mode
 
