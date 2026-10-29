@@ -39,9 +39,16 @@ const NAV = [
   { to: '/help', label: 'Help & Setup', icon: I.help },
 ]
 
+const MenuIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+)
+
 function Shell({ user }) {
   const [status, setStatus] = useState(null)
   const [mode, setModeState] = useState(getMode())
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   useEffect(() => {
     api.get('/status').then(setStatus).catch(() => {})
   }, [])
@@ -61,14 +68,22 @@ function Shell({ user }) {
     setMode(m)
   }
 
+  const initial = (user.email || '?').trim().charAt(0).toUpperCase()
+
   return (
     <div className="app">
-      <aside className="sidebar">
+      <div className={`sidebar-overlay${sidebarOpen ? ' show' : ''}`} onClick={() => setSidebarOpen(false)} />
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="brand">
-          <h1>GMB Automation</h1>
-          <p>Local SEO, on autopilot</p>
+          <div className="brand-row">
+            <span className="logo-mark">G</span>
+            <div>
+              <h1>GMB Automation</h1>
+              <p>Local SEO, on autopilot</p>
+            </div>
+          </div>
         </div>
-        <nav className="nav">
+        <nav className="nav" onClick={() => setSidebarOpen(false)}>
           {nav.map((n, i) =>
             n.section
               ? <div key={i} className="section-label">{n.section}</div>
@@ -82,14 +97,26 @@ function Shell({ user }) {
         </div>
       </aside>
       <div className="main">
-        <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-          <span><strong>{user.email}</strong> <span className="muted">({user.role === 'super_admin' ? 'Super admin' : 'Operator'})</span></span>
-          <span style={{ flex: 1 }} />
-          <span className="muted">View:</span>
-          <button className={`btn small ${mode === 'live' ? 'primary' : ''}`} onClick={() => switchMode('live')}>Live</button>
-          <button className={`btn small ${mode === 'demo' ? 'primary' : ''}`} onClick={() => switchMode('demo')}>Demo</button>
-          <button className="btn small" onClick={logout}>Logout</button>
-        </div>
+        <header className="topbar">
+          <div className="topbar-left">
+            <button className="icon-btn" aria-label="Open menu" onClick={() => setSidebarOpen(true)}>{MenuIcon}</button>
+          </div>
+          <div className="topbar-right">
+            <div className="seg" role="group" aria-label="View mode">
+              <button className={mode === 'live' ? 'active' : ''} onClick={() => switchMode('live')}>Live</button>
+              <button className={mode === 'demo' ? 'active' : ''} onClick={() => switchMode('demo')}>Demo</button>
+            </div>
+            <div className="topbar-divider" />
+            <div className="user-chip">
+              <span className="avatar">{initial}</span>
+              <span className="user-meta">
+                <strong>{user.email}</strong>
+                <span>{user.role === 'super_admin' ? 'Super admin' : 'Operator'}</span>
+              </span>
+            </div>
+            <button className="btn small" onClick={logout}>Logout</button>
+          </div>
+        </header>
         {status && dryRun && (
           <div className="dryrun-banner">
             <strong>DRY-RUN MODE</strong>
