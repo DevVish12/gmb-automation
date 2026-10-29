@@ -958,10 +958,10 @@ def api_settings_get():
 
 @app.route("/api/settings", methods=["POST"])
 def api_settings_set():
-    d = jdata()
-    tracker.kv_set("dry_run", "True" if d.get("dry_run") else "False")
-    log.warning("dry_run set to %s", tracker.kv_get("dry_run"))
-    return jsonify({"ok": True})
+    # Production safety: do not allow dashboard settings to disable dry-run.
+    tracker.kv_set("dry_run", "True")
+    log.warning("dry_run forced to True by production safety guard")
+    return jsonify({"ok": True, "dry_run": True})
 
 
 @app.route("/api/demo/seed", methods=["POST"])
@@ -1005,7 +1005,7 @@ def spa(path):
 # ================= MAIN =================
 # Gunicorn/Render jaise WSGI server import par chalate hain (__main__ nahi chalta),
 # isliye scheduler env flag se start hota hai. Local `python app.py` me __main__ wala rasta same hai.
-if os.environ.get("START_SCHEDULER") == "1":
+if os.environ.get("START_SCHEDULER") == "1" and os.environ.get("ENABLE_GMB_SCHEDULER") == "1":
     sched_mod.start(tracker, runtime_cfg)
 
 if __name__ == "__main__":
