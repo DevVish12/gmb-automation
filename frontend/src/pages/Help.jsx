@@ -36,6 +36,12 @@ export default function Help() {
         <h3>Going live — 4 steps <span className="sub">Do this once. The only slow part is Google's approval (Step 2).</span></h3>
         <ol className="steps">
           <li>
+            <h4>Accounts, login &amp; Demo/Live mode</h4>
+            <p>Every operator signs up from the login screen — email + password, or Google sign-in. The first account becomes <strong>super admin</strong> (manages users, enables/disables accounts, views login history).</p>
+            <p>Top-right <strong>Live / Demo</strong> switch: Live shows only your real clients; Demo also shows the demo client (Sharma Dental Clinic, dummy data — never deleted, just hidden in Live mode).</p>
+            <p>Each operator sees only their own clients. The central Google OAuth client and approval belong to this server — operators never set up Cloud projects, APIs, or JSON files.</p>
+          </li>
+          <li>
             <h4>Create a Google Cloud project &amp; enable the APIs</h4>
             <p>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">console.cloud.google.com</a> → create a new project → open <strong>APIs &amp; Services → Library</strong> and enable these 4:</p>
             <ul>
