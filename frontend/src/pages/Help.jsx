@@ -37,22 +37,22 @@ export default function Help() {
         <ol className="steps">
           <li>
             <h4>Create a Google Cloud project &amp; enable the APIs</h4>
-            <p>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">console.cloud.google.com</a> → create a new project → open <strong>APIs &amp; Services → Library</strong> and enable these 5:</p>
+            <p>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">console.cloud.google.com</a> → create a new project → open <strong>APIs &amp; Services → Library</strong> and enable these 4:</p>
             <ul>
               <li>My Business Account Management API</li>
               <li>My Business Business Information API</li>
               <li>Business Profile Performance API</li>
               <li>My Business Notifications API</li>
-              <li>Google My Business API (the legacy v4 one — needed for posts, reviews &amp; media)</li>
             </ul>
+            <p className="muted" style={{ fontSize: 13 }}>Note: the legacy v4 API (posts, reviews &amp; media) doesn’t appear in the Library for new projects — it’s granted automatically with the Basic API Access approval in Step 2.</p>
             <p>Takes about 10 minutes.</p>
           </li>
           <li>
             <h4>Apply for Basic API Access <Badge value="Needs Google's approval" tone="amber" /></h4>
-            <p>Open <a href={FORM_URL} target="_blank" rel="noreferrer">{FORM_URL}</a> and choose <strong>“Application for Basic API Access”</strong>. You’ll need:</p>
+            <p>Open <a href={FORM_URL} target="_blank" rel="noreferrer">{FORM_URL}</a> and choose <strong>“Application for Basic API Access”</strong>. <strong>You</strong> (the agency) submit this form — the approval is granted to <strong>your Cloud project</strong>, not to the client. You’ll need:</p>
             <ul>
               <li>Your Google Cloud <strong>project number</strong> (Cloud Console dashboard → Project Info)</li>
-              <li>An email that is an <strong>owner or manager</strong> of a Google Business Profile</li>
+              <li>To be signed in with an email that is an <strong>owner or manager</strong> of a Google Business Profile — ask your client to add your email as a <strong>Manager</strong> on their profile (takes them 2 minutes); that’s the client’s only job in this whole process</li>
               <li>That profile must be <strong>verified and active for 60+ days</strong>, with a <strong>live business website</strong></li>
             </ul>
             <p>Approval usually takes <strong>a few days to ~2 weeks</strong>. Until then your API quota is <strong>0</strong> — every call fails, and that’s normal. Google emails you when it’s approved (quota jumps to 300/min).</p>
@@ -60,8 +60,8 @@ export default function Help() {
           </li>
           <li>
             <h4>Create an OAuth client &amp; connect each client</h4>
-            <p>In the same Cloud project: <strong>APIs &amp; Services → Credentials → Create Credentials → OAuth client ID</strong> (type: Desktop app). Download the JSON file.</p>
-            <p>Then in this app: <strong>Clients → Add client</strong> → paste the JSON file’s path into <em>OAuth secrets file path</em> → <strong>Connect Google</strong> → sign in with the Google account that manages that business → Allow. Done once per client.</p>
+            <p>In the same Cloud project: <strong>APIs &amp; Services → Credentials → Create Credentials → OAuth client ID</strong> (type: <strong>Web application</strong> for a live site — Desktop app is only for local use). Add the redirect URI <code>/oauth/callback</code> on your live domain. Download the JSON file and save it on the server as <code>client_secrets.json</code> in the app folder — once only, for all clients. No path to paste anywhere.</p>
+            <p>Then in this app: <strong>Clients → Add client</strong> → <strong>Connect Google</strong> → sign in with the Google account that manages that business → Allow. Done once per client.</p>
             <p>Tokens are stored only on this machine (in the <code>tokens/</code> folder) — never uploaded anywhere.</p>
           </li>
           <li>
