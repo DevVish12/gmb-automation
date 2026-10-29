@@ -14,8 +14,12 @@ from datetime import date
 from pathlib import Path
 
 import yaml
-from flask import (Flask, jsonify, request, send_file, send_from_directory,
-                   session, url_for)
+from flask import (Flask, jsonify, redirect, request, send_file,
+                   send_from_directory, session, url_for)
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token as google_id_token
+from google_auth_oauthlib.flow import Flow
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from gmb import auth, audit as audit_mod, content as content_mod
 from gmb import reviews as reviews_mod, reports as reports_mod
@@ -79,12 +83,100 @@ def err(msg, code=400):
     return jsonify({"ok": False, "error": msg}), code
 
 
+# ================= OPERATOR AUTH (SaaS) =================
+def public_op(op):
+    if not op:
+        return None
+    return {"id": op["id"], "email": op["email"], "name": op.get("name", ""),
+            "role": op.get("role", "operator"), "is_active": op.get("is_active", 1),
+            "created_at": op.get("created_at", "")}
+
+
+def current_operator():
+    oid = session.get("operator_id")
+    if not oid:
+        return None
+    op = tracker.get_operator(oid)
+    if not op or not op.get("is_active"):
+        session.clear()
+        return None
+    return op
+
+
+def req_mode():
+    """UI mode: 'live' (default, sirf real clients) ya 'demo' (demo client bhi dikhe)."""
+    try:
+        m = request.args.get("mode")
+        if m in ("live", "demo"):
+            return m
+        d = request.get_json(force=True, silent=True) or {}
+        if isinstance(d, dict) and d.get("mode") in ("live", "demo"):
+            return d["mode"]
+    except Exception:
+        pass
+    return "live"
+
+
+def can_access_client(c, op):
+    """Operator ko ye client dikhe / use kar sake ya nahi."""
+    if not c:
+        return False
+    if c.get("is_demo"):
+        # Demo client shared playground hai — sirf demo mode me dikhta hai.
+        return req_mode() == "demo"
+    if op and op.get("role") == "super_admin":
+        return True
+    if op and c.get("owner_id") == op["id"]:
+        return True
+    return False
+
+
+def visible_clients(op, mode=None):
+    """Operator ko dikhne wale clients (list endpoints ke liye)."""
+    mode = mode or req_mode()
+    out = []
+    for c in tracker.get_clients():
+        if c.get("is_demo"):
+            if mode == "demo":
+                out.append(c)
+        elif op and op.get("role") == "super_admin":
+            out.append(c)
+        elif op and c.get("owner_id") == op["id"]:
+            out.append(c)
+    return out
+
+
 def get_client_or_404(slug):
     c = tracker.get_client(slug)
     if not c:
         return None
+    if not can_access_client(c, current_operator()):
+        return None
     c["connected"] = auth.is_connected(slug)
     return c
+
+
+def _check_slug_access(slug):
+    """Id-only routes (post/keyword/competitor/activity) ke liye: slug ka client
+    accessible hai to client dict, warna None."""
+    c = tracker.get_client(slug)
+    if not c or not can_access_client(c, current_operator()):
+        return None
+    return c
+
+
+# Login gate: /api/* par session operator chahiye, in public paths ke siwa.
+# /api/status public hai (deploy health check isko bina login ke curl karta hai),
+# lekin guests ko sirf ok+dry_run milta hai, koi client data nahi.
+PUBLIC_API_PATHS = {"/api/health", "/api/status", "/api/auth/me", "/api/auth/login",
+                    "/api/auth/register", "/api/auth/google", "/api/auth/logout"}
+
+
+@app.before_request
+def _require_login():
+    if request.path.startswith("/api/") and request.path not in PUBLIC_API_PATHS:
+        if not current_operator():
+            return err("Login required", 401)
 
 
 def enriched_client(c):
@@ -111,7 +203,16 @@ def api_health():
 
 @app.route("/api/status")
 def api_status():
-    counts = tracker.pending_approvals()
+    op = current_operator()
+    if not op:
+        # Deploy health check + public liveness: sirf ok+dry_run, koi client data nahi.
+        return jsonify({"ok": True, "dry_run": eff_dry_run()})
+    slugs = [c["slug"] for c in visible_clients(op)]
+    counts = {"posts": 0, "replies": 0, "media": 0, "qa": 0}
+    for s in slugs:
+        pc = tracker.pending_approvals(s)
+        for k in counts:
+            counts[k] += pc.get(k, 0)
     return jsonify({
         "ok": True,
         "dry_run": eff_dry_run(),
@@ -131,7 +232,8 @@ def api_status():
 # ================= CLIENTS =================
 @app.route("/api/clients", methods=["GET"])
 def api_clients():
-    clients = [enriched_client(c) for c in tracker.get_clients()]
+    op = current_operator()
+    clients = [enriched_client(c) for c in visible_clients(op)]
     return jsonify({"ok": True, "clients": clients})
 
 
@@ -157,6 +259,7 @@ def api_client_add():
         "category": (d.get("category") or "").strip(),
         "services": services,
         "secrets_path": (d.get("secrets_path") or "").strip(),
+        "owner_id": (current_operator() or {}).get("id"),
     })
     tracker.log_activity(slug, "Client onboarded", area="Onboarding", status="Pending")
     return jsonify({"ok": True, "slug": slug})
@@ -172,7 +275,7 @@ def api_client_get(slug):
 
 @app.route("/api/clients/<slug>", methods=["PATCH"])
 def api_client_update(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     d = jdata()
     fields = {}
@@ -195,9 +298,12 @@ def api_client_update(slug):
 
 @app.route("/api/clients/<slug>", methods=["DELETE"])
 def api_client_delete(slug):
-    c = tracker.get_client(slug)
+    c = get_client_or_404(slug)
     if not c:
         return err("Client nahi mila", 404)
+    op = current_operator()
+    if c.get("is_demo") and (not op or op.get("role") != "super_admin"):
+        return err("Demo client sirf super admin delete kar sakta hai", 403)
     removed = tracker.delete_client(slug)
     # OAuth token bhi hata do taaki dobara connect kiye bina use na ho
     try:
@@ -214,13 +320,189 @@ def api_client_delete(slug):
 
 @app.route("/api/clients/<slug>/autopublish", methods=["POST"])
 def api_client_autopublish(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     val = 1 if jdata().get("auto_publish") else 0
     tracker.update_client(slug, auto_publish=val)
     if val:
         log.warning("AUTO-PUBLISH ON for %s — user ne warning samajh ke on kiya", slug)
     return jsonify({"ok": True})
+
+
+# ================= OPERATOR AUTH ROUTES (SaaS) =================
+# Google sign-in ke liye alag scopes — GBP wale business.manage flow se alag.
+# NOTE: Cloud Console consent screen par ye 3 scopes add hone chahiye, warna
+# Google sign-in consent screen par dikhega hi nahi (user-side pending step).
+LOGIN_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile"]
+
+
+def _set_login_session(op):
+    session["operator_id"] = op["id"]
+    session["operator_email"] = op["email"]
+    session["operator_role"] = op.get("role", "operator")
+
+
+def _client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    d = jdata()
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    name = (d.get("name") or "").strip()
+    if not email or "@" not in email:
+        return err("Valid email chahiye", 400)
+    if len(password) < 6:
+        return err("Password kam se kam 6 characters ka ho", 400)
+    if tracker.get_operator_by_email(email):
+        return err("Ye email pehle se registered hai", 400)
+    is_first = len(tracker.list_operators()) == 0
+    role = "super_admin" if is_first else "operator"
+    oid = tracker.create_operator(email, name or email.split("@")[0],
+                                  generate_password_hash(password), role)
+    if is_first:
+        # Pehle se maujood owner-less real clients pehle operator ke ho gaye.
+        tracker.claim_unowned_clients(oid)
+    op = tracker.get_operator(oid)
+    _set_login_session(op)
+    # Register karte hi session banta hai — ye bhi ek login event hai.
+    tracker.record_login(op["id"], email, _client_ip(),
+                         request.headers.get("User-Agent", ""))
+    return jsonify({"ok": True, "operator": public_op(op)})
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    d = jdata()
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    op = tracker.get_operator_by_email(email)
+    if not op or not op.get("password_hash") or not check_password_hash(op["password_hash"], password):
+        return err("Email ya password galat hai", 401)
+    if not op.get("is_active"):
+        return err("Account disabled hai — super admin se sampark karo", 403)
+    _set_login_session(op)
+    tracker.record_login(op["id"], email, _client_ip(),
+                         request.headers.get("User-Agent", ""))
+    return jsonify({"ok": True, "operator": public_op(op)})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/me")
+def api_auth_me():
+    op = current_operator()
+    if not op:
+        return jsonify({"ok": True, "authenticated": False, "operator": None})
+    return jsonify({"ok": True, "authenticated": True, "operator": public_op(op)})
+
+
+@app.route("/api/auth/google")
+def api_auth_google():
+    secrets = resolve_secrets_path({})
+    if not secrets or not Path(secrets).exists():
+        return err("OAuth client secrets file nahi mili. Server par client_secrets.json rakho "
+                   "(app folder me) ya GMB_OAUTH_SECRETS env var set karo.", 400)
+    flow = Flow.from_client_secrets_file(
+        secrets, scopes=LOGIN_SCOPES,
+        redirect_uri=url_for("auth_google_callback", _external=True))
+    url, _ = flow.authorization_url(prompt="select_account")
+    session["login_flow"] = "1"
+    return jsonify({"ok": True, "authorization_url": url})
+
+
+@app.route("/auth/google/callback")
+def auth_google_callback():
+    def _fail(msg):
+        return (f"<!doctype html><html><head><title>Google sign-in</title></head>"
+                f"<body style='font-family:sans-serif;padding:40px'><h2>{msg}</h2>"
+                f"<p><a href='/'>Wapas jao</a></p></body></html>")
+    if not session.pop("login_flow", None):
+        return _fail("Login session expire ho gayi — dobara Sign in dabao.")
+    try:
+        secrets = resolve_secrets_path({})
+        flow = Flow.from_client_secrets_file(
+            secrets, scopes=LOGIN_SCOPES,
+            redirect_uri=url_for("auth_google_callback", _external=True))
+        flow.fetch_token(authorization_response=request.url)
+        creds = flow.credentials
+        info = None
+        if creds.id_token:
+            try:
+                info = google_id_token.verify_oauth2_token(
+                    creds.id_token, GoogleRequest(), creds.client_id)
+            except Exception:
+                info = None
+        if not info:
+            import requests as _req
+            r = _req.get("https://openidconnect.googleapis.com/v1/userinfo",
+                         headers={"Authorization": f"Bearer {creds.token}"}, timeout=15)
+            info = r.json() if r.ok else {}
+        email = (info.get("email") or "").strip().lower()
+        if not email:
+            raise ValueError("Google se email nahi mili")
+        if info.get("email_verified") in (False, "false"):
+            raise ValueError("Google email verified nahi hai")
+        op = tracker.get_operator_by_email(email)
+        if op is None:
+            is_first = len(tracker.list_operators()) == 0
+            role = "super_admin" if is_first else "operator"
+            oid = tracker.create_operator(email, info.get("name") or email.split("@")[0],
+                                          "", role)
+            if is_first:
+                tracker.claim_unowned_clients(oid)
+            op = tracker.get_operator(oid)
+        if not op.get("is_active"):
+            return _fail("Account disabled hai — super admin se sampark karo.")
+        _set_login_session(op)
+        tracker.record_login(op["id"], email, _client_ip(),
+                             request.headers.get("User-Agent", ""))
+        return redirect("/")
+    except Exception as e:
+        log.error("google login fail: %s", e)
+        return _fail(f"Google sign-in fail: {e}")
+
+
+# ================= SUPER ADMIN =================
+@app.route("/api/admin/users")
+def api_admin_users():
+    op = current_operator()
+    if not op or op.get("role") != "super_admin":
+        return err("Super admin only", 403)
+    return jsonify({"ok": True, "users": [public_op(o) for o in tracker.list_operators()]})
+
+
+@app.route("/api/admin/users/<int:oid>/toggle", methods=["POST"])
+def api_admin_user_toggle(oid):
+    op = current_operator()
+    if not op or op.get("role") != "super_admin":
+        return err("Super admin only", 403)
+    if oid == op["id"]:
+        return err("Apna khud ka account disable nahi kar sakte", 400)
+    target = tracker.get_operator(oid)
+    if not target:
+        return err("User nahi mila", 404)
+    new_state = 0 if target.get("is_active") else 1
+    tracker.set_operator_active(oid, new_state)
+    return jsonify({"ok": True, "is_active": new_state})
+
+
+@app.route("/api/admin/logins")
+def api_admin_logins():
+    op = current_operator()
+    if not op or op.get("role") != "super_admin":
+        return err("Super admin only", 403)
+    return jsonify({"ok": True, "logins": tracker.get_login_history(200)})
 
 
 # ================= OAUTH =================
@@ -287,6 +569,8 @@ def oauth_callback():
 
 @app.route("/api/disconnect/<slug>", methods=["POST"])
 def api_disconnect(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
     auth.disconnect(slug)
     tracker.update_client(slug, connected=0)
     return jsonify({"ok": True})
@@ -294,6 +578,9 @@ def api_disconnect(slug):
 
 @app.route("/api/logs")
 def api_logs():
+    op = current_operator()
+    if not op or op.get("role") != "super_admin":
+        return err("Super admin only", 403)
     lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-150:] if LOG_FILE.exists() else []
     return jsonify({"ok": True, "lines": lines, "task": state["task"], "error": state["error"]})
 
@@ -307,7 +594,7 @@ AUDIT_FIELDS = ["name", "description", "primary_category", "phone", "website", "
 
 @app.route("/api/audit/<slug>", methods=["GET"])
 def api_audit_get(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     saved = tracker.kv_get(f"audit:{slug}")
     result = json.loads(saved) if saved else None
@@ -387,7 +674,7 @@ def api_audit_run(slug):
 
 @app.route("/api/audit/<slug>/push", methods=["POST"])
 def api_audit_push(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     saved = tracker.kv_get(f"audit:{slug}")
     if not saved:
@@ -416,7 +703,7 @@ def api_keywords_get(slug):
 
 @app.route("/api/keywords/<slug>", methods=["POST"])
 def api_keywords_add(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     d = jdata()
     if not (d.get("keyword") or "").strip():
@@ -430,6 +717,11 @@ def api_keywords_add(slug):
 
 @app.route("/api/keywords/<slug>/<int:kid>", methods=["PATCH"])
 def api_keyword_update(slug, kid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    kw = tracker.get_keyword(kid)
+    if not kw or kw.get("client_slug") != slug:
+        return err("Keyword nahi mili", 404)
     d = jdata()
     fields = {}
     for k in ("keyword", "ktype", "mapped_to", "volume"):
@@ -441,6 +733,11 @@ def api_keyword_update(slug, kid):
 
 @app.route("/api/keywords/<slug>/<int:kid>", methods=["DELETE"])
 def api_keyword_delete(slug, kid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    kw = tracker.get_keyword(kid)
+    if not kw or kw.get("client_slug") != slug:
+        return err("Keyword nahi mili", 404)
     tracker.delete_keyword(kid)
     return jsonify({"ok": True})
 
@@ -489,7 +786,7 @@ def _caldraft_load(slug):
 
 @app.route("/api/calendar/<slug>", methods=["GET"])
 def api_calendar_get(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     year, month, slots = _caldraft_load(slug)
     return jsonify({"ok": True, "slots": slots, "year": year, "month": month})
@@ -551,6 +848,11 @@ def api_queue_get(slug):
 
 @app.route("/api/queue/<slug>/<int:pid>", methods=["PATCH"])
 def api_queue_update(slug, pid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    p = tracker.get_post(pid)
+    if not p or p.get("client_slug") != slug:
+        return err("Post nahi mili", 404)
     d = jdata()
     fields = {}
     for k in ("summary", "topic", "cta_url", "topic_type", "cta_type"):
@@ -562,6 +864,11 @@ def api_queue_update(slug, pid):
 
 @app.route("/api/queue/<slug>/<int:pid>/approve", methods=["POST"])
 def api_queue_approve(slug, pid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    p = tracker.get_post(pid)
+    if not p or p.get("client_slug") != slug:
+        return err("Post nahi mili", 404)
     tracker.update_post(pid, status="approved")
     tracker.log_activity(slug, f"Post #{pid} approved", area="Posts", status="Approved")
     return jsonify({"ok": True})
@@ -569,6 +876,11 @@ def api_queue_approve(slug, pid):
 
 @app.route("/api/queue/<slug>/<int:pid>/schedule", methods=["POST"])
 def api_queue_schedule(slug, pid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    p = tracker.get_post(pid)
+    if not p or p.get("client_slug") != slug:
+        return err("Post nahi mili", 404)
     d = (jdata().get("scheduled_date") or "").strip()
     if d:
         tracker.update_post(pid, scheduled_date=d, status="scheduled")
@@ -579,22 +891,28 @@ def api_queue_schedule(slug, pid):
 
 @app.route("/api/queue/<slug>/<int:pid>", methods=["DELETE"])
 def api_queue_delete(slug, pid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    p = tracker.get_post(pid)
+    if not p or p.get("client_slug") != slug:
+        return err("Post nahi mili", 404)
     tracker.delete_post(pid)
     return jsonify({"ok": True})
 
 
-def try_publish_post(pid: int) -> tuple[bool, str]:
-    """Ek post abhi publish karo — saare safety guards ke saath."""
-    posts = None
-    # post dhoondo
-    for cl in tracker.get_clients():
-        for p in tracker.get_posts(cl["slug"]):
-            if p["id"] == pid:
-                posts, slug, client = p, cl["slug"], cl
-                break
-    if posts is None:
+def try_publish_post(pid: int, slug: str) -> tuple[bool, str]:
+    """Ek post abhi publish karo — saare safety guards ke saath.
+    Sirf usi client ke posts me dhoondo (multi-tenancy: dusre operator ka post kabhi nahi)."""
+    client = tracker.get_client(slug)
+    if not client:
         return False, "Post nahi mili"
-    p = posts
+    p = None
+    for cand in tracker.get_posts(slug):
+        if cand["id"] == pid:
+            p = cand
+            break
+    if p is None:
+        return False, "Post nahi mili"
     if eff_dry_run():
         return False, "DRY-RUN ON hai — pehle Settings me dry-run OFF karo (API approved hone ke baad)."
     if not auth.is_connected(slug):
@@ -624,7 +942,9 @@ def try_publish_post(pid: int) -> tuple[bool, str]:
 
 @app.route("/api/queue/<slug>/<int:pid>/publish", methods=["POST"])
 def api_queue_publish(slug, pid):
-    ok, msg = try_publish_post(pid)
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    ok, msg = try_publish_post(pid, slug)
     return jsonify({"ok": ok, "message": msg})
 
 
@@ -665,10 +985,15 @@ def api_reviews_check(slug):
 
 @app.route("/api/reviews/<slug>", methods=["PATCH"])
 def api_review_save(slug):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
     d = jdata()
     rname = d.get("review_name", "")
     if not rname:
         return err("review_name khaali hai", 400)
+    rv = tracker.get_review(rname)
+    if not rv or rv.get("client_slug") != slug:
+        return err("Review nahi mili", 404)
     tracker.update_review_reply(rname, reply_text=(d.get("reply_text") or "").strip(),
                                 reply_status="draft")
     return jsonify({"ok": True})
@@ -717,7 +1042,7 @@ def api_media_get(slug):
 
 @app.route("/api/media/<slug>", methods=["POST"])
 def api_media_add(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     d = jdata()
     mid = tracker.add_media({
@@ -776,7 +1101,7 @@ def api_competitors_get(slug):
 
 @app.route("/api/competitors/<slug>", methods=["POST"])
 def api_competitors_add(slug):
-    if not tracker.get_client(slug):
+    if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     d = jdata()
     cid = tracker.add_competitor({
@@ -795,6 +1120,11 @@ def api_competitors_add(slug):
 
 @app.route("/api/competitors/<slug>/<int:cid>", methods=["DELETE"])
 def api_competitor_delete(slug, cid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    comp = tracker.get_competitor(cid)
+    if not comp or comp.get("client_slug") != slug:
+        return err("Competitor nahi mila", 404)
     tracker.delete_competitor(cid)
     return jsonify({"ok": True})
 
@@ -922,7 +1252,12 @@ def api_reports_compile(slug):
 
 @app.route("/api/report/<int:rid>")
 def api_report_view(rid):
+    op = current_operator()
     for cl in tracker.get_clients():
+        # Demo reports shared dummy data hain; real reports sirf owner/super admin ko.
+        if not cl.get("is_demo") and not (
+                op and (op.get("role") == "super_admin" or cl.get("owner_id") == op["id"])):
+            continue
         for r in tracker.get_reports(cl["slug"]):
             if r["id"] == rid:
                 return send_file(r["html_path"])
@@ -932,14 +1267,27 @@ def api_report_view(rid):
 # ================= MASTER TRACKER =================
 @app.route("/api/tracker", methods=["GET"])
 def api_tracker_get():
-    acts = tracker.get_activities(slug=request.args.get("client_slug") or None,
-                                  status=request.args.get("status") or None)
+    op = current_operator()
+    qslug = request.args.get("client_slug") or None
+    if qslug:
+        if not get_client_or_404(qslug):
+            return err("Client nahi mila", 404)
+        acts = tracker.get_activities(slug=qslug,
+                                      status=request.args.get("status") or None)
+    else:
+        allowed = {c["slug"] for c in visible_clients(op)}
+        acts = [a for a in tracker.get_activities(
+                    status=request.args.get("status") or None)
+                if not a.get("client_slug") or a["client_slug"] in allowed]
     return jsonify({"ok": True, "activities": acts, "statuses": STATUS_FLOW})
 
 
 @app.route("/api/tracker", methods=["POST"])
 def api_tracker_add():
     d = jdata()
+    cslug = d.get("client_slug", "")
+    if cslug and not _check_slug_access(cslug):
+        return err("Client nahi mila", 404)
     aid = tracker.log_activity(d.get("client_slug", ""),
                                (d.get("activity") or "").strip(),
                                area=(d.get("area") or "").strip(),
@@ -952,6 +1300,11 @@ def api_tracker_add():
 
 @app.route("/api/tracker/<int:aid>/transition", methods=["POST"])
 def api_tracker_transition(aid):
+    act = tracker.get_activity(aid)
+    if not act:
+        return jsonify({"ok": False, "message": "Activity nahi mili"})
+    if act.get("client_slug") and not _check_slug_access(act["client_slug"]):
+        return err("Client nahi mila", 404)
     ok, msg = tracker.transition_activity(aid, jdata().get("status", ""))
     return jsonify({"ok": ok, "message": msg})
 
@@ -959,7 +1312,8 @@ def api_tracker_transition(aid):
 # ================= SETTINGS =================
 @app.route("/api/settings", methods=["GET"])
 def api_settings_get():
-    clients = tracker.get_clients()
+    op = current_operator()
+    clients = visible_clients(op, mode="live")
     summary = []
     for c in clients:
         summary.append({
