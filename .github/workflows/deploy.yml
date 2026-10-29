@@ -31,6 +31,11 @@ jobs:
               cp -a gmb_automation.db "/tmp/gmb_automation.db.backup-$(date +%Y%m%d%H%M%S)"
             fi
 
+            # frontend/dist is rebuilt on every deploy, so local build
+            # output must never block a deploy. Discard it first.
+            git checkout -- frontend/dist 2>/dev/null || true
+            git clean -fd frontend/dist 2>/dev/null || true
+
             # Never overwrite uncommitted production changes.
             if [ -n "$(git status --porcelain)" ]; then
               echo "ERROR: Working tree has local changes; refusing to deploy."
@@ -48,9 +53,18 @@ jobs:
             cd ..
 
             sudo -n systemctl restart gmb-automation
-            sleep 5
 
-            if ! curl -sf --max-time 10 http://127.0.0.1:5003/api/status; then
+            # Health check with retries: the service can take a few
+            # seconds to boot after a restart.
+            ok=""
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              if curl -sf --max-time 5 http://127.0.0.1:5003/api/status > /dev/null; then
+                ok="yes"
+                break
+              fi
+              sleep 5
+            done
+            if [ -z "$ok" ]; then
               echo "ERROR: GMB health check failed."
               exit 1
             fi
