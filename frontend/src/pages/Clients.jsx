@@ -95,7 +95,7 @@ export default function Clients() {
               const pend = (p.posts || 0) + (p.replies || 0) + (p.media || 0) + (p.qa || 0)
               return (
                 <tr key={c.slug}>
-                  <td><strong>{c.business_name || c.name}</strong><br /><span className="muted">{c.category || '—'}</span></td>
+                  <td><strong>{c.business_name || c.name}</strong>{c.is_demo ? <> <Badge value="Demo" tone="blue" /></> : null}<br /><span className="muted">{c.category || '—'}</span></td>
                   <td>{c.city || '—'}<br /><span className="muted">{c.phone || ''}</span></td>
                   <td><ConnDot connected={c.connected} /></td>
                   <td>{pend > 0 ? <Badge value={`${pend} waiting`} tone="amber" /> : <span className="muted">none</span>}</td>
