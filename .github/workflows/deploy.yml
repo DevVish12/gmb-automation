@@ -1,4 +1,3 @@
-
 name: Deploy GMB Automation
 
 on:
@@ -27,16 +26,12 @@ jobs:
             set -eu
             cd /var/www/gmb-automation
 
-            # Preserve local production data before updating code.
+            # Back up the production SQLite database.
             if [ -f gmb_automation.db ]; then
               cp -a gmb_automation.db "/tmp/gmb_automation.db.backup-$(date +%Y%m%d%H%M%S)"
             fi
 
-            if [ -d tokens ]; then
-              tar -czf "/tmp/gmb-tokens-backup-$(date +%Y%m%d%H%M%S).tar.gz" tokens
-            fi
-
-            # Fail instead of overwriting uncommitted production changes.
+            # Never overwrite uncommitted production changes.
             if [ -n "$(git status --porcelain)" ]; then
               echo "ERROR: Working tree has local changes; refusing to deploy."
               git status --short
