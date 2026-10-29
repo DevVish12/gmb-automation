@@ -71,12 +71,15 @@ export function Loading({ text }) {
 }
 
 // ---------- stat card ----------
-export function Stat({ label, value, sub }) {
+export function Stat({ label, value, sub, icon }) {
   return (
     <div className="stat">
-      <div className="label">{label}</div>
-      <div className="value">{value}</div>
-      {sub && <div className="sub">{sub}</div>}
+      {icon && <span className="stat-icon">{icon}</span>}
+      <div className="stat-body">
+        <div className="label">{label}</div>
+        <div className="value">{value}</div>
+        {sub && <div className="sub">{sub}</div>}
+      </div>
     </div>
   )
 }
