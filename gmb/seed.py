@@ -42,6 +42,7 @@ def seed_demo_data(tracker, posting_cfg) -> dict:
         "phone": "+91 98220 12345",
         "website": "https://sharmadentalclinic.example.com",
         "services": services,
+        "is_demo": 1,
     })
 
     # ---------- 2. audit (manual mode, realistic imperfect profile) ----------
