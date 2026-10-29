@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, Link } from 'react-router-dom'
-import { api } from './api'
+import { api, getMode, setMode } from './api'
 import { I } from './components/icons'
 import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
@@ -15,6 +15,9 @@ import Reports from './pages/Reports'
 import Tracker from './pages/Tracker'
 import Settings from './pages/Settings'
 import Help from './pages/Help'
+import Login from './pages/Login'
+import Admin from './pages/Admin'
+import { Loading } from './components/ui'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: I.dashboard, end: true },
@@ -36,12 +39,27 @@ const NAV = [
   { to: '/help', label: 'Help & Setup', icon: I.help },
 ]
 
-function Shell() {
+function Shell({ user }) {
   const [status, setStatus] = useState(null)
+  const [mode, setModeState] = useState(getMode())
   useEffect(() => {
     api.get('/status').then(setStatus).catch(() => {})
   }, [])
   const dryRun = status ? status.dry_run : true
+
+  const nav = user.role === 'super_admin'
+    ? [...NAV, { section: 'Admin' }, { to: '/admin', label: 'Users & Logins', icon: I.settings }]
+    : NAV
+
+  const logout = async () => {
+    try { await api.post('/auth/logout') } catch (e) {}
+    window.location.href = '/'
+  }
+
+  const switchMode = (m) => {
+    setModeState(m)
+    setMode(m)
+  }
 
   return (
     <div className="app">
@@ -51,7 +69,7 @@ function Shell() {
           <p>Local SEO, on autopilot</p>
         </div>
         <nav className="nav">
-          {NAV.map((n, i) =>
+          {nav.map((n, i) =>
             n.section
               ? <div key={i} className="section-label">{n.section}</div>
               : <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => isActive ? 'active' : ''}>
@@ -64,6 +82,14 @@ function Shell() {
         </div>
       </aside>
       <div className="main">
+        <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+          <span><strong>{user.email}</strong> <span className="muted">({user.role === 'super_admin' ? 'Super admin' : 'Operator'})</span></span>
+          <span style={{ flex: 1 }} />
+          <span className="muted">View:</span>
+          <button className={`btn small ${mode === 'live' ? 'primary' : ''}`} onClick={() => switchMode('live')}>Live</button>
+          <button className={`btn small ${mode === 'demo' ? 'primary' : ''}`} onClick={() => switchMode('demo')}>Demo</button>
+          <button className="btn small" onClick={logout}>Logout</button>
+        </div>
         {status && dryRun && (
           <div className="dryrun-banner">
             <strong>DRY-RUN MODE</strong>
@@ -86,6 +112,7 @@ function Shell() {
             <Route path="/tracker" element={<Tracker />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/help" element={<Help />} />
+            <Route path="/admin" element={<Admin />} />
           </Routes>
         </div>
       </div>
@@ -94,9 +121,13 @@ function Shell() {
 }
 
 export default function App() {
+  const [user, setUser] = useState(null)
+  useEffect(() => {
+    api.get('/auth/me').then((d) => setUser(d.authenticated ? d.operator : false)).catch(() => setUser(false))
+  }, [])
   return (
     <BrowserRouter>
-      <Shell />
+      {user === null ? <Loading /> : user === false ? <Login /> : <Shell user={user} />}
     </BrowserRouter>
   )
 }
