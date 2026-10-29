@@ -417,6 +417,9 @@ def api_auth_google():
         secrets, scopes=LOGIN_SCOPES,
         redirect_uri=url_for("auth_google_callback", _external=True))
     url, _ = flow.authorization_url(prompt="select_account")
+    # PKCE: authorization_url ne code_verifier banaya hai; callback me dobara
+    # banne wala Flow use kho dega, isliye session me save karo.
+    session["login_verifier"] = flow.code_verifier
     session["login_flow"] = "1"
     return jsonify({"ok": True, "authorization_url": url})
 
@@ -434,6 +437,8 @@ def auth_google_callback():
         flow = Flow.from_client_secrets_file(
             secrets, scopes=LOGIN_SCOPES,
             redirect_uri=url_for("auth_google_callback", _external=True))
+        # PKCE verifier wapas lagao, warna Google "Missing code verifier" dega.
+        flow.code_verifier = session.pop("login_verifier", None)
         flow.fetch_token(authorization_response=request.url)
         creds = flow.credentials
         info = None
@@ -537,15 +542,19 @@ def api_connect(slug):
                    "(app folder me) ya GMB_OAUTH_SECRETS env var set karo (README Step 3).")
     redirect_uri = url_for("oauth_callback", _external=True)
     flow = auth.build_flow(secrets, redirect_uri)
+    auth_url = auth.authorization_url(flow, state=slug)
     session["oauth_slug"] = slug
     session["oauth_secrets"] = secrets
-    return jsonify({"ok": True, "authorization_url": auth.authorization_url(flow, state=slug)})
+    # PKCE: verifier session me rakho, warna callback wala Flow use kho dega.
+    session["oauth_verifier"] = flow.code_verifier
+    return jsonify({"ok": True, "authorization_url": auth_url})
 
 
 @app.route("/oauth/callback")
 def oauth_callback():
     slug = session.pop("oauth_slug", None)
     secrets = session.pop("oauth_secrets", "")
+    verifier = session.pop("oauth_verifier", None)
     msg = "Google connected! You can close this window."
     if not slug:
         msg = "OAuth session expire ho gayi — dobara Connect dabao."
@@ -553,6 +562,8 @@ def oauth_callback():
         try:
             redirect_uri = url_for("oauth_callback", _external=True)
             flow = auth.build_flow(secrets, redirect_uri)
+            # PKCE verifier wapas lagao, warna Google "Missing code verifier" dega.
+            flow.code_verifier = verifier
             flow.fetch_token(authorization_response=request.url)
             auth.save_credentials(slug, flow.credentials)
             tracker.update_client(slug, connected=1)
