@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Alert, Badge, ConnDot, EmptyState, Loading, Modal, PageHeader } from '../components/ui'
 
-const emptyForm = { name: '', business_name: '', city: '', phone: '', website: '', category: '', services: '', secrets_path: '' }
+const emptyForm = { name: '', business_name: '', city: '', phone: '', website: '', category: '', services: '' }
 
 export default function Clients() {
   const [clients, setClients] = useState(null)
@@ -132,7 +132,6 @@ export default function Clients() {
             <div className="field"><label>Website</label><input type="text" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} /></div>
             <div className="field"><label>Primary category</label><input type="text" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. Dental clinic" /></div>
             <div className="field full"><label>Services (comma separated)</label><input type="text" value={form.services} onChange={(e) => setForm({ ...form, services: e.target.value })} placeholder="Root Canal, Braces, Teeth Cleaning" /></div>
-            <div className="field full"><label>OAuth secrets file path</label><input type="text" value={form.secrets_path} onChange={(e) => setForm({ ...form, secrets_path: e.target.value })} placeholder="/path/to/client_secret.json" /><span className="hint">Needed only for the Google connection step (see Help &amp; Setup).</span></div>
           </div>
           <div className="form-actions">
             <button className="btn primary" onClick={addClient}>Add client</button>
@@ -151,7 +150,6 @@ export default function Clients() {
             <div className="field"><label>Website</label><input type="text" value={editForm.website || ''} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} /></div>
             <div className="field"><label>Google Account ID</label><input type="text" value={editForm.account_id || ''} onChange={(e) => setEditForm({ ...editForm, account_id: e.target.value })} /></div>
             <div className="field"><label>Google Location ID</label><input type="text" value={editForm.location_id || ''} onChange={(e) => setEditForm({ ...editForm, location_id: e.target.value })} /><span className="hint">Found after connecting — needed for live publishing.</span></div>
-            <div className="field"><label>OAuth secrets path</label><input type="text" value={editForm.secrets_path || ''} onChange={(e) => setEditForm({ ...editForm, secrets_path: e.target.value })} /></div>
             <div className="field full"><label>Services (comma separated)</label><input type="text" value={editForm.services || ''} onChange={(e) => setEditForm({ ...editForm, services: e.target.value })} /></div>
           </div>
           <div className="form-actions">
