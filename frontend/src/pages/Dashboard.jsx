@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Alert, Badge, ConnDot, Loading, PageHeader, Stat } from '../components/ui'
+import { I } from '../components/icons'
 
 export default function Dashboard() {
   const [status, setStatus] = useState(null)
@@ -39,10 +40,10 @@ export default function Dashboard() {
         subtitle="One place to see every client's Google Business Profile work — what's drafted, what's waiting for approval, and what's live."
       />
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        <Stat label="Clients" value={clients.length} sub={`${connected} Google-connected`} />
-        <Stat label="Pending approvals" value={status.pending_total} sub="Posts, replies, QA items" />
-        <Stat label="Scheduled posts" value={scheduled} sub="Waiting to publish" />
-        <Stat label="Mode" value={status.dry_run ? 'Dry-run' : 'Live'} sub={status.dry_run ? 'Nothing publishes yet' : 'Publishing is active'} />
+        <Stat icon={I.clients} label="Clients" value={clients.length} sub={`${connected} Google-connected`} />
+        <Stat icon={I.queue} label="Pending approvals" value={status.pending_total} sub="Posts, replies, QA items" />
+        <Stat icon={I.calendar} label="Scheduled posts" value={scheduled} sub="Waiting to publish" />
+        <Stat icon={I.settings} label="Mode" value={status.dry_run ? 'Dry-run' : 'Live'} sub={status.dry_run ? 'Nothing publishes yet' : 'Publishing is active'} />
       </div>
 
       <div className="grid cols-2">
