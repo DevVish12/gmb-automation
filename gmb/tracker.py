@@ -87,7 +87,24 @@ class Tracker:
                 period_start TEXT, period_end TEXT, html_path TEXT,
                 sources_json TEXT DEFAULT '{}', created_at TEXT);
             CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS operators(
+                id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE,
+                name TEXT DEFAULT '', password_hash TEXT DEFAULT '',
+                role TEXT DEFAULT 'operator', is_active INTEGER DEFAULT 1,
+                created_at TEXT);
+            CREATE TABLE IF NOT EXISTS login_history(
+                id INTEGER PRIMARY KEY AUTOINCREMENT, operator_id INTEGER,
+                email TEXT, ip TEXT DEFAULT '', user_agent TEXT DEFAULT '',
+                created_at TEXT);
             """)
+            # Purani DBs ke liye migration: clients me owner/is_demo columns jodo.
+            cols = {r[1] for r in c.execute("PRAGMA table_info(clients)").fetchall()}
+            if "owner_id" not in cols:
+                c.execute("ALTER TABLE clients ADD COLUMN owner_id INTEGER")
+            if "is_demo" not in cols:
+                c.execute("ALTER TABLE clients ADD COLUMN is_demo INTEGER DEFAULT 0")
+            # Demo client hamesha demo-marked rahe (kabhi delete nahi hota, sirf filter hota hai).
+            c.execute("UPDATE clients SET is_demo=1 WHERE slug='sharma-dental-clinic'")
 
     # ---------- generic ----------
     def now(self):
@@ -110,14 +127,16 @@ class Tracker:
             c.execute(
                 """INSERT OR REPLACE INTO clients
                    (slug,name,business_name,account_id,location_id,category,city,phone,
-                    website,services_json,secrets_path,auto_publish,active,connected,created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    website,services_json,secrets_path,auto_publish,active,connected,
+                    owner_id,is_demo,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (slug, data.get("name"), data.get("business_name") or data.get("name"),
                  data.get("account_id", ""), data.get("location_id", ""),
                  data.get("category", ""), data.get("city", ""), data.get("phone", ""),
                  data.get("website", ""), json.dumps(data.get("services") or []),
                  data.get("secrets_path", ""), int(data.get("auto_publish", 0)),
-                 1, int(data.get("connected", 0)), self.now()))
+                 1, int(data.get("connected", 0)), data.get("owner_id"),
+                 int(data.get("is_demo", 0)), self.now()))
         return slug
 
     def get_client(self, slug: str) -> dict | None:
@@ -141,7 +160,7 @@ class Tracker:
     def update_client(self, slug: str, **fields):
         allowed = {"name", "business_name", "account_id", "location_id", "category",
                    "city", "phone", "website", "secrets_path", "auto_publish",
-                   "active", "connected"}
+                   "active", "connected", "owner_id", "is_demo"}
         sets, vals = [], []
         for k, v in fields.items():
             if k == "services":
@@ -412,6 +431,80 @@ class Tracker:
         with self._lock, self._conn() as c:
             return [dict(r) for r in c.execute(
                 "SELECT * FROM reports WHERE client_slug=? ORDER BY created_at DESC", (slug,))]
+
+    def claim_unowned_clients(self, operator_id: int):
+        """Pehle operator (super admin) ko saare owner-less real clients de do.
+        Demo client is_demo=1 hai, isliye isme nahi aata."""
+        with self._lock, self._conn() as c:
+            c.execute(
+                "UPDATE clients SET owner_id=? WHERE owner_id IS NULL AND is_demo=0",
+                (operator_id,))
+
+    # ---------- operators (SaaS accounts) ----------
+    def create_operator(self, email: str, name: str, password_hash: str, role: str) -> int:
+        with self._lock, self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO operators(email,name,password_hash,role,is_active,created_at)"
+                " VALUES(?,?,?,?,1,?)",
+                (email, name, password_hash, role, self.now()))
+            return cur.lastrowid
+
+    def get_operator_by_email(self, email: str) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM operators WHERE email=?", (email,)).fetchone()
+            return dict(r) if r else None
+
+    def get_operator(self, oid: int) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM operators WHERE id=?", (oid,)).fetchone()
+            return dict(r) if r else None
+
+    def list_operators(self) -> list[dict]:
+        with self._lock, self._conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT id,email,name,role,is_active,created_at FROM operators ORDER BY id")]
+
+    def set_operator_active(self, oid: int, active: int):
+        with self._lock, self._conn() as c:
+            c.execute("UPDATE operators SET is_active=? WHERE id=?", (int(active), oid))
+
+    def record_login(self, operator_id: int, email: str, ip: str, user_agent: str):
+        with self._lock, self._conn() as c:
+            c.execute(
+                "INSERT INTO login_history(operator_id,email,ip,user_agent,created_at)"
+                " VALUES(?,?,?,?,?)",
+                (operator_id, email, ip or "", (user_agent or "")[:200], self.now()))
+
+    def get_login_history(self, limit: int = 200) -> list[dict]:
+        with self._lock, self._conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM login_history ORDER BY id DESC LIMIT ?", (limit,))]
+
+    # ---------- id lookups (multi-tenancy checks ke liye) ----------
+    def get_post(self, pid: int) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM posts WHERE id=?", (pid,)).fetchone()
+            return dict(r) if r else None
+
+    def get_keyword(self, kid: int) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM keywords WHERE id=?", (kid,)).fetchone()
+            return dict(r) if r else None
+
+    def get_competitor(self, cid: int) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM competitors WHERE id=?", (cid,)).fetchone()
+            return dict(r) if r else None
+
+    def get_activity(self, aid: int) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM activities WHERE id=?", (aid,)).fetchone()
+            return dict(r) if r else None
+
+    def get_review(self, review_name: str) -> dict | None:
+        with self._lock, self._conn() as c:
+            r = c.execute("SELECT * FROM reviews WHERE review_name=?", (review_name,)).fetchone()
+            return dict(r) if r else None
 
     # ---------- dashboard helpers ----------
     def pending_approvals(self, slug: str | None = None) -> dict:
