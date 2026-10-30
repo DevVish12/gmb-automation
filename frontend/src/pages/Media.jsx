@@ -9,7 +9,7 @@ export default function Media() {
   const [items, setItems] = useState([])
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
-  const [form, setForm] = useState({ kind: 'photo', note: '', caption: '', file_url: '', scheduled_date: '' })
+  const [form, setForm] = useState({ kind: 'photo', note: '', caption: '', file_url: '', scheduled_date: '', visual_category: '' })
 
   useEffect(() => {
     api.get('/clients').then((d) => setClients(d.clients)).catch((e) => setErr(e.message))
@@ -30,7 +30,7 @@ export default function Media() {
   const add = wrap(async () => {
     if (!form.note.trim()) throw new Error('Give this media a short note/label.')
     await api.post(`/media/${slug}`, form)
-    setForm({ kind: 'photo', note: '', caption: '', file_url: '', scheduled_date: '' })
+    setForm({ kind: 'photo', note: '', caption: '', file_url: '', scheduled_date: '', visual_category: '' })
     return 'Added to the upload queue.'
   })
 
@@ -64,6 +64,11 @@ export default function Media() {
               <option value="photo">Photo</option><option value="video">Video</option>
             </select></div>
           <div className="field"><label>Label / note *</label><input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. Shop front, Team photo" /></div>
+          <div className="field"><label>Visual category</label>
+            <select value={form.visual_category} onChange={(e) => setForm({ ...form, visual_category: e.target.value })}>
+              <option value="">—</option>
+              {['exterior', 'interior', 'service', 'product', 'work', 'equipment', 'facilities', 'team', 'completed', 'before-after', 'short-video', 'service-visual'].map((v) => <option key={v} value={v}>{v}</option>)}
+            </select></div>
           <div className="field"><label>Caption</label><input type="text" value={form.caption} onChange={(e) => setForm({ ...form, caption: e.target.value })} /></div>
           <div className="field"><label>Planned date</label><input type="date" value={form.scheduled_date} onChange={(e) => setForm({ ...form, scheduled_date: e.target.value })} /></div>
           <div className="field full"><label>Public file URL</label><input type="text" value={form.file_url} onChange={(e) => setForm({ ...form, file_url: e.target.value })} placeholder="https://…" /></div>
@@ -77,12 +82,13 @@ export default function Media() {
           <EmptyState title="Nothing queued" text="Add photos and videos above to plan the visual calendar." />
         ) : (
           <div className="table-wrap"><table>
-            <thead><tr><th>Label</th><th>Type</th><th>Caption</th><th>URL</th><th>Date</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Label</th><th>Type</th><th>Category</th><th>Caption</th><th>URL</th><th>Date</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {items.map((m) => (
                 <tr key={m.id}>
                   <td><strong>{m.note}</strong></td>
                   <td><Badge value={m.kind} tone="indigo" /></td>
+                  <td className="muted">{m.visual_category || '—'}</td>
                   <td className="muted">{m.caption || '—'}</td>
                   <td>{m.file_url ? <a href={m.file_url} target="_blank" rel="noreferrer">link</a> : <span className="muted">—</span>}</td>
                   <td>{m.scheduled_date || '—'}</td>
