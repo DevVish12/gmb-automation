@@ -88,7 +88,7 @@ export default function Calendar() {
           <div className="card" key={w}>
             <h3>Week {w}</h3>
             <div className="table-wrap"><table>
-              <thead><tr><th>Date</th><th>Post type</th><th>Topic</th><th>Keyword</th></tr></thead>
+              <thead><tr><th>Date</th><th>Post type</th><th>Topic</th><th>Keyword</th><th>Description</th><th>Creative</th><th>Approval</th><th>Publishing</th></tr></thead>
               <tbody>
                 {weeks[w].map((s, i) => (
                   <tr key={i}>
@@ -96,6 +96,10 @@ export default function Calendar() {
                     <td><Badge value={s.post_type} tone="indigo" /></td>
                     <td>{s.topic}</td>
                     <td className="muted">{s.keyword || '—'}</td>
+                    <td className="muted">{s.description_status || '—'}</td>
+                    <td className="muted">{s.creative_status || '—'}</td>
+                    <td><Badge value={s.approval_status || '—'} /></td>
+                    <td><Badge value={s.publishing_status || '—'} /></td>
                   </tr>
                 ))}
               </tbody>
