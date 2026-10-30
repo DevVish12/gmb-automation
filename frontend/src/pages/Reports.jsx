@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, reportUrl } from '../api'
-import { Alert, Badge, ClientPicker, ConnDot, EmptyState, Loading, PageHeader, useClient } from '../components/ui'
+import { Alert, Badge, ClientPicker, ConnDot, EmptyState, Loading, PageHeader, Stat, useClient } from '../components/ui'
 
 export default function Reports() {
   const [clients, setClients] = useState(null)
@@ -13,6 +13,7 @@ export default function Reports() {
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
+  const [perfLive, setPerfLive] = useState(null)
   const [f, setF] = useState({
     period_start: '', period_end: '', use_api: false,
     perf: {}, activity: {},
@@ -27,7 +28,17 @@ export default function Reports() {
   const load = () => {
     if (!slug) return
     Promise.all([api.get(`/clients/${slug}`), api.get(`/reports/${slug}`)])
-      .then(([c, r]) => { setClient(c.client); setReps(r.reports); setPerfKeys(r.perf_keys); setActKeys(r.act_keys) })
+      .then(([c, r]) => {
+        setClient(c.client); setReps(r.reports); setPerfKeys(r.perf_keys); setActKeys(r.act_keys)
+        if (c.client?.connected) {
+          setPerfLive({ state: 'loading' })
+          api.get(`/reports/${slug}/performance`)
+            .then((d) => setPerfLive({ state: 'ok', data: d }))
+            .catch((e) => setPerfLive({ state: 'error', reason: e.message }))
+        } else {
+          setPerfLive(null)
+        }
+      })
       .catch((e) => setErr(e.message))
   }
   useEffect(load, [slug])
@@ -73,6 +84,29 @@ export default function Reports() {
       />
       <Alert kind="error">{err}</Alert>
       <Alert kind="success">{ok}</Alert>
+
+      {client?.connected && perfLive && (
+        <div className="card">
+          <h3>Historical performance — live from Google <span className="sub">Purana (old) SEO data, report compile kiye bina</span></h3>
+          {perfLive.state === 'loading' && <Loading text="Google se live stats la rahe hain…" />}
+          {perfLive.state === 'ok' && (
+            <>
+              <div className="grid cols-3" style={{ marginBottom: 12 }}>
+                <Stat label="Profile views" value={perfLive.data.stats.impressions} sub="Search + Maps" />
+                <Stat label="Search views" value={perfLive.data.stats.search_views} sub="Google Search" />
+                <Stat label="Maps views" value={perfLive.data.stats.maps_views} sub="Google Maps" />
+                <Stat label="Website clicks" value={perfLive.data.stats.website_clicks} sub="Website visits" />
+                <Stat label="Calls" value={perfLive.data.stats.calls} sub="Call clicks" />
+                <Stat label="Direction requests" value={perfLive.data.stats.directions} sub="Directions" />
+              </div>
+              <p className="muted">Period: {perfLive.data.period.start} → {perfLive.data.period.end} ({perfLive.data.days} days) · Source: <Badge value="API" /> Live from Google</p>
+            </>
+          )}
+          {perfLive.state === 'error' && (
+            <Alert kind="error">Live stats available nahi hain: {perfLive.reason}</Alert>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h3>Compile new report</h3>
