@@ -24,6 +24,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from gmb import auth, audit as audit_mod, content as content_mod
 from gmb import reviews as reviews_mod, reports as reports_mod
 from gmb import scheduler as sched_mod, dataforseo as dfs_mod
+from gmb import workflow as workflow_mod
 from gmb.tracker import Tracker, STATUS_FLOW
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -54,6 +55,9 @@ if not tracker.get_clients(active_only=False) and CFG.get("clients"):
     for c in CFG["clients"]:
         tracker.add_client(c)
     log.info("seeded %d clients from config", len(CFG["clients"]))
+
+# Workflow tables/columns (PDF Sections 2/5/10/12) — purani DBs par bhi safe.
+workflow_mod.ensure_schema(str(BASE_DIR / CFG["app"].get("db_path", "gmb_automation.db")))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("GMB_SECRET_KEY") or os.urandom(24).hex()
@@ -800,6 +804,24 @@ def api_calendar_get(slug):
     if not get_client_or_404(slug):
         return err("Client nahi mila", 404)
     year, month, slots = _caldraft_load(slug)
+    # PDF Section 6: har slot par description/creative/approval/publishing status.
+    # Queued post mile to uska status, warna slot ki apni haalat.
+    by_key = {}
+    for p in tracker.get_posts(slug):
+        by_key[(p.get("scheduled_date"), p.get("topic"))] = p
+    for s in slots:
+        p = by_key.get((s.get("scheduled_date") or s.get("date"), s.get("topic")))
+        if p:
+            s["approval_status"] = ("Approved" if p.get("status") in ("approved", "scheduled", "published")
+                                    else ("Pending" if p.get("requires_approval") else "Not required"))
+            s["publishing_status"] = p.get("status") or "draft"
+            s["description_status"] = "Ready" if p.get("summary") else "Pending"
+            s["creative_status"] = "Linked" if p.get("creative_id") else "Pending"
+        else:
+            s["approval_status"] = "Not queued"
+            s["publishing_status"] = "Not queued"
+            s["description_status"] = "Ready" if s.get("headline") else "Pending"
+            s["creative_status"] = "Pending"
     return jsonify({"ok": True, "slots": slots, "year": year, "month": month})
 
 
@@ -866,9 +888,15 @@ def api_queue_update(slug, pid):
         return err("Post nahi mili", 404)
     d = jdata()
     fields = {}
-    for k in ("summary", "topic", "cta_url", "topic_type", "cta_type"):
+    for k in ("summary", "topic", "cta_url", "topic_type", "cta_type",
+              "intent", "problem", "offer_details"):
         if k in d:
             fields[k] = (d.get(k) or "").strip()
+    if "creative_id" in d:
+        try:
+            fields["creative_id"] = int(d.get("creative_id") or 0)
+        except (TypeError, ValueError):
+            fields["creative_id"] = 0
     tracker.update_post(pid, **fields)
     return jsonify({"ok": True})
 
@@ -1063,6 +1091,7 @@ def api_media_add(slug):
         "caption": (d.get("caption") or "").strip(),
         "file_url": (d.get("file_url") or "").strip(),
         "scheduled_date": (d.get("scheduled_date") or "").strip(),
+        "visual_category": (d.get("visual_category") or "").strip(),
     })
     return jsonify({"ok": True, "id": mid})
 
@@ -1124,6 +1153,9 @@ def api_competitors_add(slug):
         "categories": (d.get("categories") or "").strip(),
         "posting_freq": (d.get("posting_freq") or "").strip(),
         "notes": (d.get("notes") or "").strip(),
+        "services": (d.get("services") or "").strip(),
+        "offers": (d.get("offers") or "").strip(),
+        "post_topics": (d.get("post_topics") or "").strip(),
         "source": "manual",
     })
     return jsonify({"ok": True, "id": cid})
@@ -1305,7 +1337,14 @@ def api_tracker_add():
                                status="Pending",
                                owner=(d.get("owner") or "").strip(),
                                due_date=(d.get("due_date") or "").strip(),
-                               notes=(d.get("notes") or "").strip())
+                               notes=(d.get("notes") or "").strip(),
+                               keyword=(d.get("keyword") or "").strip(),
+                               topic=(d.get("topic") or "").strip(),
+                               copy_text=(d.get("copy_text") or "").strip(),
+                               creative=(d.get("creative") or "").strip(),
+                               qa_approval=(d.get("qa_approval") or "pending").strip(),
+                               published=(d.get("published") or "").strip(),
+                               proof=(d.get("proof") or "").strip())
     return jsonify({"ok": True, "id": aid})
 
 
@@ -1318,6 +1357,163 @@ def api_tracker_transition(aid):
         return err("Client nahi mila", 404)
     ok, msg = tracker.transition_activity(aid, jdata().get("status", ""))
     return jsonify({"ok": ok, "message": msg})
+
+
+# ================= WORKFLOW (PDF Sections 2.2/2.3/2.4, 5, 10, 12) =================
+# Profile Optimization: category/service/description proposals. Tool live profile
+# khud kabhi nahi badalta — human approval ke baad operator Google par manually
+# apply karta hai. Creatives: brief + QA checklist. Pipeline: stage progression.
+
+def _wf_db():
+    return str(BASE_DIR / CFG["app"].get("db_path", "gmb_automation.db"))
+
+
+@app.route("/api/optimizations/<slug>", methods=["GET"])
+def api_opt_get(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    return jsonify({"ok": True, "optimizations": workflow_mod.get_optimizations(_wf_db(), slug),
+                    "types": workflow_mod.OPT_TYPES, "statuses": workflow_mod.OPT_STATUSES})
+
+
+@app.route("/api/optimizations/<slug>", methods=["POST"])
+def api_opt_add(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    d = jdata()
+    oid = workflow_mod.add_optimization(_wf_db(), {
+        "client_slug": slug,
+        "opt_type": (d.get("opt_type") or "category").strip(),
+        "item_name": (d.get("item_name") or "").strip(),
+        "current_value": (d.get("current_value") or "").strip(),
+        "proposed_value": (d.get("proposed_value") or "").strip(),
+        "keywords": (d.get("keywords") or "").strip(),
+        "priority": (d.get("priority") or "Medium").strip(),
+        "status": "proposed",
+        "notes": (d.get("notes") or "").strip(),
+    })
+    tracker.log_activity(slug, f"Optimization proposed ({d.get('opt_type')}): {d.get('item_name')}",
+                         area="Optimization", status="Pending")
+    return jsonify({"ok": True, "id": oid})
+
+
+@app.route("/api/optimizations/<slug>/<int:oid>", methods=["PATCH"])
+def api_opt_update(slug, oid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    d = jdata()
+    fields = {k: (d.get(k) or "").strip() for k in
+              ("opt_type", "item_name", "current_value", "proposed_value",
+               "keywords", "priority", "status", "notes") if k in d}
+    if not workflow_mod.update_optimization(_wf_db(), oid, slug, fields):
+        return err("Optimization nahi mili", 404)
+    if fields.get("status") == "applied":
+        tracker.log_activity(slug, "Optimization applied", area="Optimization",
+                             status="Published")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/optimizations/<slug>/<int:oid>", methods=["DELETE"])
+def api_opt_delete(slug, oid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    if not workflow_mod.delete_optimization(_wf_db(), oid, slug):
+        return err("Optimization nahi mili", 404)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/creatives/<slug>", methods=["GET"])
+def api_creatives_get(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    return jsonify({"ok": True, "creatives": workflow_mod.get_creatives(_wf_db(), slug),
+                    "qa_items": workflow_mod.QA_ITEMS})
+
+
+@app.route("/api/creatives/<slug>", methods=["POST"])
+def api_creative_add(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    d = jdata()
+    cid = workflow_mod.add_creative(_wf_db(), {
+        "client_slug": slug,
+        "post_id": int(d.get("post_id") or 0),
+        "keyword": (d.get("keyword") or "").strip(),
+        "topic": (d.get("topic") or "").strip(),
+        "headline": (d.get("headline") or "").strip(),
+        "supporting_text": (d.get("supporting_text") or "").strip(),
+        "cta": (d.get("cta") or "").strip(),
+        "brand_notes": (d.get("brand_notes") or "").strip(),
+        "visual_concept": (d.get("visual_concept") or "").strip(),
+        "offer_info": (d.get("offer_info") or "").strip(),
+        "qa_json": {},
+        "qa_status": "pending",
+        "status": "draft",
+    })
+    return jsonify({"ok": True, "id": cid})
+
+
+@app.route("/api/creatives/<slug>/from-post/<int:pid>", methods=["POST"])
+def api_creative_from_post(slug, pid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    p = tracker.get_post(pid)
+    if not p or p.get("client_slug") != slug:
+        return err("Post nahi mili", 404)
+    c = get_client_or_404(slug)
+    brief = workflow_mod.brief_from_post(p, c or {})
+    brief["client_slug"] = slug
+    brief["post_id"] = pid
+    brief["qa_json"] = {}
+    brief["qa_status"] = "pending"
+    brief["status"] = "draft"
+    cid = workflow_mod.add_creative(_wf_db(), brief)
+    tracker.update_post(pid, creative_id=cid)
+    return jsonify({"ok": True, "id": cid, "brief": brief})
+
+
+@app.route("/api/creatives/<slug>/<int:cid>", methods=["PATCH"])
+def api_creative_update(slug, cid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    d = jdata()
+    fields = {}
+    for k in ("keyword", "topic", "headline", "supporting_text", "cta",
+              "brand_notes", "visual_concept", "offer_info", "qa_status", "status"):
+        if k in d:
+            fields[k] = (d.get(k) or "").strip()
+    if "post_id" in d:
+        try:
+            fields["post_id"] = int(d.get("post_id") or 0)
+        except (TypeError, ValueError):
+            fields["post_id"] = 0
+    if "qa_json" in d:
+        fields["qa_json"] = d.get("qa_json") or {}
+    if not workflow_mod.update_creative(_wf_db(), cid, slug, fields):
+        return err("Creative nahi mila", 404)
+    if fields.get("qa_status") == "passed":
+        tracker.log_activity(slug, "Creative QA passed", area="Creative", status="Approved")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/creatives/<slug>/<int:cid>", methods=["DELETE"])
+def api_creative_delete(slug, cid):
+    if not _check_slug_access(slug):
+        return err("Client nahi mila", 404)
+    if not workflow_mod.delete_creative(_wf_db(), cid, slug):
+        return err("Creative nahi mila", 404)
+    for p in tracker.get_posts(slug):
+        if p.get("creative_id") == cid:
+            tracker.update_post(p["id"], creative_id=0)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pipeline/<slug>", methods=["GET"])
+def api_pipeline_get(slug):
+    if not get_client_or_404(slug):
+        return err("Client nahi mila", 404)
+    return jsonify({"ok": True,
+                    **workflow_mod.pipeline_status(tracker, slug, dry_run=eff_dry_run())})
 
 
 # ================= SETTINGS =================
