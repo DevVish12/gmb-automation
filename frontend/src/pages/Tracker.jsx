@@ -11,7 +11,7 @@ export default function Tracker() {
   const [fStatus, setFStatus] = useState('')
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
-  const [form, setForm] = useState({ client_slug: '', activity: '', area: '', owner: '', due_date: '', notes: '' })
+  const [form, setForm] = useState({ client_slug: '', activity: '', area: '', owner: '', due_date: '', notes: '', keyword: '', topic: '', copy_text: '', creative: '', qa_approval: 'pending', published: '', proof: '' })
 
   useEffect(() => {
     api.get('/clients').then((d) => setClients(d.clients)).catch((e) => setErr(e.message))
@@ -32,7 +32,7 @@ export default function Tracker() {
   const add = wrap(async () => {
     if (!form.activity.trim()) throw new Error('Describe the activity.')
     await api.post('/tracker', { ...form, client_slug: form.client_slug || fClient })
-    setForm({ client_slug: '', activity: '', area: '', owner: '', due_date: '', notes: '' })
+    setForm({ client_slug: '', activity: '', area: '', owner: '', due_date: '', notes: '', keyword: '', topic: '', copy_text: '', creative: '', qa_approval: 'pending', published: '', proof: '' })
     return 'Activity logged.'
   })
 
@@ -67,6 +67,16 @@ export default function Tracker() {
           <div className="field full"><label>Activity *</label><input type="text" value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })} placeholder="What was done / needs doing" /></div>
           <div className="field"><label>Owner</label><input type="text" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} /></div>
           <div className="field"><label>Due date</label><input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></div>
+          <div className="field"><label>Keyword</label><input type="text" value={form.keyword} onChange={(e) => setForm({ ...form, keyword: e.target.value })} /></div>
+          <div className="field"><label>Topic</label><input type="text" value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} /></div>
+          <div className="field full"><label>Copy</label><input type="text" value={form.copy_text} onChange={(e) => setForm({ ...form, copy_text: e.target.value })} /></div>
+          <div className="field"><label>Creative</label><input type="text" value={form.creative} onChange={(e) => setForm({ ...form, creative: e.target.value })} /></div>
+          <div className="field"><label>QA approval</label>
+            <select value={form.qa_approval} onChange={(e) => setForm({ ...form, qa_approval: e.target.value })}>
+              <option value="pending">Pending</option><option value="approved">Approved</option><option value="changes-needed">Changes needed</option>
+            </select></div>
+          <div className="field"><label>Published</label><input type="text" value={form.published} onChange={(e) => setForm({ ...form, published: e.target.value })} placeholder="date or link" /></div>
+          <div className="field full"><label>Proof</label><input type="text" value={form.proof} onChange={(e) => setForm({ ...form, proof: e.target.value })} placeholder="post URL / screenshot link" /></div>
           <div className="field full"><label>Notes</label><input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
         <div className="form-actions"><button className="btn primary" onClick={add}>Log activity</button></div>
@@ -89,13 +99,20 @@ export default function Tracker() {
           <EmptyState title="Nothing logged" text="Activity appears here as you work — or log one manually above." />
         ) : (
           <div className="table-wrap"><table>
-            <thead><tr><th>Activity</th><th>Client</th><th>Area</th><th>Owner</th><th>Due</th><th>Status</th><th>Move to</th></tr></thead>
+            <thead><tr><th>Activity</th><th>Client</th><th>Area</th><th>Keyword</th><th>Topic</th><th>Copy</th><th>Creative</th><th>QA</th><th>Published</th><th>Proof</th><th>Owner</th><th>Due</th><th>Status</th><th>Move to</th></tr></thead>
             <tbody>
               {acts.map((a) => (
                 <tr key={a.id}>
                   <td><strong>{a.activity}</strong>{a.notes && <><br /><span className="muted">{a.notes}</span></>}</td>
                   <td className="muted">{a.client_slug}</td>
                   <td><Badge value={a.area || '—'} tone={a.area ? 'indigo' : 'slate'} /></td>
+                  <td className="muted">{a.keyword || '—'}</td>
+                  <td className="muted">{a.topic || '—'}</td>
+                  <td className="muted">{a.copy_text || '—'}</td>
+                  <td className="muted">{a.creative || '—'}</td>
+                  <td><Badge value={a.qa_approval || 'pending'} /></td>
+                  <td className="muted">{a.published || '—'}</td>
+                  <td>{a.proof ? <a href={a.proof} target="_blank" rel="noreferrer">proof</a> : <span className="muted">—</span>}</td>
                   <td>{a.owner || '—'}</td>
                   <td>{a.due_date || '—'}</td>
                   <td><Badge value={a.status} /></td>
