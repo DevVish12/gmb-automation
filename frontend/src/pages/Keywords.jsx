@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Alert, Badge, ClientPicker, EmptyState, Loading, PageHeader, useClient } from '../components/ui'
 
-const TYPES = ['primary', 'secondary', 'service', 'location', 'long-tail']
+const TYPES = ['primary', 'secondary', 'service', 'location', 'service-location', 'long-tail', 'intent', 'commercial', 'supporting', 'competitor']
 
 export default function Keywords() {
   const [clients, setClients] = useState(null)
