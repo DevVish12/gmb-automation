@@ -17,6 +17,7 @@ import requests
 POST_TYPES = [
     "service-focused", "educational", "location-keyword", "faq",
     "trust-benefit", "offer", "seasonal", "product", "event",
+    "problem-solution",
 ]
 
 # topicType mapping (GBP API)
@@ -30,6 +31,7 @@ TOPIC_TYPE = {
     "seasonal": "STANDARD",
     "product": "STANDARD",
     "event": "EVENT",
+    "problem-solution": "STANDARD",
 }
 
 WEEKDAY = {
@@ -78,6 +80,12 @@ _TEMPLATES = {
         "[EVENT DETAILS PENDING] {business} ({city}) me upcoming event — {service} se judi jaankari. "
         "Date/time confirm hote hi update karenge.",
     ],
+    "problem-solution": [
+        "{service} me aksar ye problem hoti hai: sahi provider chunna mushkil lagta hai. "
+        "{business} ({city}) ka solution — clear process, transparent pricing aur experienced team.",
+        "Kya {service} ko lekar confused hain? {business} pehle aapki problem samajhta hai, "
+        "phir step-by-step solution deta hai — {city} me aaj hi baat karein.",
+    ],
 }
 
 _CTA = {
@@ -90,6 +98,7 @@ _CTA = {
     "seasonal": ("CALL", "phone"),
     "product": ("LEARN_MORE", "website"),
     "event": ("SIGN_UP", "website"),
+    "problem-solution": ("LEARN_MORE", "website"),
 }
 
 
