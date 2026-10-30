@@ -6,13 +6,16 @@ import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
 import Audit from './pages/Audit'
 import Keywords from './pages/Keywords'
+import Optimizations from './pages/Optimizations'
 import Calendar from './pages/Calendar'
 import Queue from './pages/Queue'
+import Creatives from './pages/Creatives'
 import Reviews from './pages/Reviews'
 import Media from './pages/Media'
 import Competitors from './pages/Competitors'
 import Reports from './pages/Reports'
 import Tracker from './pages/Tracker'
+import Pipeline from './pages/Pipeline'
 import Settings from './pages/Settings'
 import Help from './pages/Help'
 import Login from './pages/Login'
@@ -25,15 +28,18 @@ const NAV = [
   { section: 'Optimize' },
   { to: '/audit', label: 'Profile Audit', icon: I.audit },
   { to: '/keywords', label: 'Keywords', icon: I.keywords },
+  { to: '/optimization', label: 'Optimization', icon: I.audit },
   { section: 'Publish' },
   { to: '/calendar', label: 'Content Calendar', icon: I.calendar },
   { to: '/queue', label: 'Content Queue', icon: I.queue },
+  { to: '/creatives', label: 'Creative Briefs', icon: I.media },
   { to: '/reviews', label: 'Reviews', icon: I.reviews },
   { to: '/media', label: 'Photos & Videos', icon: I.media },
   { section: 'Analyze' },
   { to: '/competitors', label: 'Competitors', icon: I.competitors },
   { to: '/reports', label: 'Reports', icon: I.reports },
   { to: '/tracker', label: 'Activity Tracker', icon: I.tracker },
+  { to: '/pipeline', label: 'Pipeline', icon: I.tracker },
   { section: 'System' },
   { to: '/settings', label: 'Settings', icon: I.settings },
   { to: '/help', label: 'Help & Setup', icon: I.help },
@@ -130,13 +136,16 @@ function Shell({ user }) {
             <Route path="/clients" element={<Clients />} />
             <Route path="/audit" element={<Audit />} />
             <Route path="/keywords" element={<Keywords />} />
+            <Route path="/optimization" element={<Optimizations />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/creatives" element={<Creatives />} />
             <Route path="/reviews" element={<Reviews />} />
             <Route path="/media" element={<Media />} />
             <Route path="/competitors" element={<Competitors />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/tracker" element={<Tracker />} />
+            <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/help" element={<Help />} />
             <Route path="/admin" element={<Admin />} />
