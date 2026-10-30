@@ -9,6 +9,7 @@ export default function Queue() {
   const [clients, setClients] = useState(null)
   const [slug, pick] = useClient(clients || [])
   const [posts, setPosts] = useState([])
+  const [creatives, setCreatives] = useState([])
   const [tab, setTab] = useState('all')
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
@@ -24,6 +25,7 @@ export default function Queue() {
   const load = () => {
     if (!slug) return
     api.get(`/queue/${slug}`).then((d) => setPosts(d.posts)).catch((e) => setErr(e.message))
+    api.get(`/creatives/${slug}`).then((d) => setCreatives(d.creatives)).catch(() => {})
   }
   useEffect(load, [slug])
 
@@ -99,9 +101,10 @@ export default function Queue() {
               <Badge value={p.status} />
               <Badge value={p.post_type} tone="indigo" />
               {p.keyword && <span className="muted" style={{ fontSize: 12.5 }}>keyword: {p.keyword}</span>}
+              {p.creative_id > 0 && <span className="muted" style={{ fontSize: 12.5 }}>creative: {(creatives.find((c) => c.id === p.creative_id) || {}).topic || `#${p.creative_id}`}</span>}
               {p.scheduled_date && <span className="muted" style={{ fontSize: 12.5 }}>→ {p.scheduled_date}</span>}
               <div className="row-actions" style={{ marginLeft: 'auto' }}>
-                <button className="btn small" onClick={() => { setEditing(p); setEdit({ summary: p.summary, topic: p.topic, cta_url: p.cta_url, topic_type: p.topic_type, cta_type: p.cta_type }) }}>Edit</button>
+                <button className="btn small" onClick={() => { setEditing(p); setEdit({ summary: p.summary, topic: p.topic, cta_url: p.cta_url, topic_type: p.topic_type, cta_type: p.cta_type, intent: p.intent || '', problem: p.problem || '', offer_details: p.offer_details || '', creative_id: p.creative_id || 0 }) }}>Edit</button>
                 {p.status === 'draft' && <button className="btn small primary" onClick={() => approve(p.id)}>Approve</button>}
                 {(p.status === 'draft' || p.status === 'approved') && <button className="btn small" onClick={() => { setSchedId(p.id); setSchedDate(p.scheduled_date || '') }}>Schedule</button>}
                 {(p.status === 'approved' || p.status === 'scheduled') && <button className="btn small success" onClick={() => publish(p.id)}>Publish now</button>}
@@ -118,7 +121,15 @@ export default function Queue() {
       {editing && (
         <Modal title="Edit post" onClose={() => setEditing(null)}>
           <div className="field"><label>Topic</label><input type="text" value={edit.topic || ''} onChange={(e) => setEdit({ ...edit, topic: e.target.value })} /></div>
+          <div className="field"><label>Search intent</label><input type="text" value={edit.intent || ''} onChange={(e) => setEdit({ ...edit, intent: e.target.value })} placeholder="e.g. book appointment, learn more" /></div>
+          <div className="field full"><label>Customer problem</label><input type="text" value={edit.problem || ''} onChange={(e) => setEdit({ ...edit, problem: e.target.value })} placeholder="What problem does this post solve?" /></div>
           <div className="field"><label>Post text</label><textarea rows={6} value={edit.summary || ''} onChange={(e) => setEdit({ ...edit, summary: e.target.value })} /></div>
+          <div className="field"><label>Offer details</label><input type="text" value={edit.offer_details || ''} onChange={(e) => setEdit({ ...edit, offer_details: e.target.value })} placeholder="Only for offer posts — confirmed details only" /></div>
+          <div className="field"><label>Linked creative</label>
+            <select value={edit.creative_id || 0} onChange={(e) => setEdit({ ...edit, creative_id: Number(e.target.value) })}>
+              <option value={0}>— none —</option>
+              {creatives.map((c) => <option key={c.id} value={c.id}>#{c.id} {c.topic}</option>)}
+            </select></div>
           <div className="form-grid">
             <div className="field"><label>Post type</label>
               <select value={edit.topic_type || 'STANDARD'} onChange={(e) => setEdit({ ...edit, topic_type: e.target.value })}>
