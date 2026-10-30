@@ -265,7 +265,9 @@ class Tracker:
     def update_post(self, pid: int, **fields):
         allowed = {"scheduled_date", "post_type", "topic", "keyword", "summary",
                    "topic_type", "cta_type", "cta_url", "status", "requires_approval",
-                   "gmb_post_name", "published_at"}
+                   "gmb_post_name", "published_at",
+                   # PDF Section 4 post fields
+                   "intent", "problem", "offer_details", "creative_id"}
         sets, vals = [], []
         for k, v in fields.items():
             if k in allowed:
@@ -331,10 +333,11 @@ class Tracker:
         with self._lock, self._conn() as c:
             cur = c.execute(
                 """INSERT INTO media(client_slug,kind,note,caption,file_url,status,
-                   scheduled_date,created_at) VALUES(?,?,?,?,?,?,?,?)""",
+                   scheduled_date,visual_category,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (data["client_slug"], data.get("kind", "photo"), data.get("note", ""),
                  data.get("caption", ""), data.get("file_url", ""),
-                 data.get("status", "planned"), data.get("scheduled_date", ""), self.now()))
+                 data.get("status", "planned"), data.get("scheduled_date", ""),
+                 data.get("visual_category", ""), self.now()))
             return cur.lastrowid
 
     def get_media(self, slug) -> list[dict]:
@@ -343,7 +346,8 @@ class Tracker:
                 "SELECT * FROM media WHERE client_slug=? ORDER BY scheduled_date", (slug,))]
 
     def update_media(self, mid: int, **fields):
-        allowed = {"kind", "note", "caption", "file_url", "status", "scheduled_date", "published_at"}
+        allowed = {"kind", "note", "caption", "file_url", "status", "scheduled_date",
+                   "published_at", "visual_category"}
         sets, vals = [], []
         for k, v in fields.items():
             if k in allowed:
@@ -355,14 +359,17 @@ class Tracker:
 
     # ---------- activities (master tracker) ----------
     def log_activity(self, slug, activity, area="", status="Pending", owner="",
-                     due_date="", notes="") -> int:
+                     due_date="", notes="", keyword="", topic="", copy_text="",
+                     creative="", qa_approval="pending", published="", proof="") -> int:
         if status not in STATUS_FLOW:
             status = "Pending"
         with self._lock, self._conn() as c:
             cur = c.execute(
                 """INSERT INTO activities(client_slug,activity,area,status,owner,
-                   due_date,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                   due_date,notes,keyword,topic,copy_text,creative,qa_approval,
+                   published,proof,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (slug, activity, area, status, owner, due_date, notes,
+                 keyword, topic, copy_text, creative, qa_approval, published, proof,
                  self.now(), self.now()))
             return cur.lastrowid
 
@@ -400,12 +407,14 @@ class Tracker:
         with self._lock, self._conn() as c:
             cur = c.execute(
                 """INSERT INTO competitors(client_slug,name,maps_url,rating,review_count,
-                   categories,posting_freq,notes,source,added_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                   categories,posting_freq,notes,source,services,offers,post_topics,added_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (data["client_slug"], data.get("name", ""), data.get("maps_url", ""),
                  data.get("rating", ""), data.get("review_count", ""),
                  data.get("categories", ""), data.get("posting_freq", ""),
-                 data.get("notes", ""), data.get("source", "manual"), self.now()))
+                 data.get("notes", ""), data.get("source", "manual"),
+                 data.get("services", ""), data.get("offers", ""),
+                 data.get("post_topics", ""), self.now()))
             return cur.lastrowid
 
     def get_competitors(self, slug) -> list[dict]:
