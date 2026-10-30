@@ -10,7 +10,7 @@ export default function Competitors() {
   const [dfsOn, setDfsOn] = useState(false)
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
-  const [form, setForm] = useState({ name: '', maps_url: '', rating: '', review_count: '', categories: '', posting_freq: '', notes: '' })
+  const [form, setForm] = useState({ name: '', maps_url: '', rating: '', review_count: '', categories: '', posting_freq: '', notes: '', services: '', offers: '', post_topics: '' })
   const [dfsForm, setDfsForm] = useState({ keyword: '', location: '' })
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function Competitors() {
   const add = wrap(async () => {
     if (!form.name.trim()) throw new Error('Competitor name is required.')
     await api.post(`/competitors/${slug}`, form)
-    setForm({ name: '', maps_url: '', rating: '', review_count: '', categories: '', posting_freq: '', notes: '' })
+    setForm({ name: '', maps_url: '', rating: '', review_count: '', categories: '', posting_freq: '', notes: '', services: '', offers: '', post_topics: '' })
     return 'Competitor added.'
   })
 
@@ -81,6 +81,9 @@ export default function Competitors() {
           <div className="field"><label>Review count</label><input type="text" value={form.review_count} onChange={(e) => setForm({ ...form, review_count: e.target.value })} /></div>
           <div className="field"><label>Categories</label><input type="text" value={form.categories} onChange={(e) => setForm({ ...form, categories: e.target.value })} /></div>
           <div className="field"><label>Posting frequency</label><input type="text" value={form.posting_freq} onChange={(e) => setForm({ ...form, posting_freq: e.target.value })} placeholder="e.g. 2x per week" /></div>
+          <div className="field"><label>Services</label><input type="text" value={form.services} onChange={(e) => setForm({ ...form, services: e.target.value })} /></div>
+          <div className="field"><label>Offers</label><input type="text" value={form.offers} onChange={(e) => setForm({ ...form, offers: e.target.value })} /></div>
+          <div className="field"><label>Post topics</label><input type="text" value={form.post_topics} onChange={(e) => setForm({ ...form, post_topics: e.target.value })} /></div>
           <div className="field full"><label>Notes — what are they doing better?</label><textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
         </div>
         <div className="form-actions"><button className="btn primary" onClick={add}>Add competitor</button></div>
@@ -92,7 +95,7 @@ export default function Competitors() {
           <EmptyState title="No competitors tracked" text="Add them manually or look them up with DataForSEO." />
         ) : (
           <div className="table-wrap"><table>
-            <thead><tr><th>Name</th><th>Rating</th><th>Reviews</th><th>Categories</th><th>Posting</th><th>Notes</th><th>Source</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Rating</th><th>Reviews</th><th>Categories</th><th>Posting</th><th>Services</th><th>Offers</th><th>Post topics</th><th>Notes</th><th>Source</th><th></th></tr></thead>
             <tbody>
               {comps.map((c) => (
                 <tr key={c.id}>
@@ -101,6 +104,9 @@ export default function Competitors() {
                   <td>{c.review_count || '—'}</td>
                   <td className="muted">{c.categories || '—'}</td>
                   <td className="muted">{c.posting_freq || '—'}</td>
+                  <td className="muted">{c.services || '—'}</td>
+                  <td className="muted">{c.offers || '—'}</td>
+                  <td className="muted">{c.post_topics || '—'}</td>
                   <td className="muted">{c.notes || '—'}</td>
                   <td><Badge value={c.source} /></td>
                   <td><button className="btn small danger" onClick={() => remove(c.id)}>Remove</button></td>
