@@ -1217,6 +1217,66 @@ def api_reports_get(slug):
     return jsonify({"ok": True, "reports": reps, "perf_keys": PERF_KEYS, "act_keys": ACT_KEYS})
 
 
+PERF_METRICS = [
+    "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH", "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    "BUSINESS_IMPRESSIONS_DESKTOP_MAPS", "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+    "WEBSITE_CLICKS", "CALL_CLICKS", "BUSINESS_DIRECTION_REQUESTS",
+]
+PERF_DEFAULT_DAYS = 180
+
+
+def _sum_perf_totals(resp):
+    """Performance API ke daily series ko totals me jodo (compile wali mapping)."""
+    totals = {}
+    for series in (resp.get("multiDailyMetricTimeSeries") or []):
+        m = series.get("dailyMetric", "")
+        for pt in series.get("timeSeries", {}).get("datedValues", []):
+            totals[m] = totals.get(m, 0) + int(pt.get("value") or 0)
+    return {
+        "impressions": sum(v for k, v in totals.items() if "IMPRESSIONS" in k),
+        "search_views": sum(v for k, v in totals.items() if "_SEARCH" in k),
+        "maps_views": sum(v for k, v in totals.items() if "_MAPS" in k),
+        "website_clicks": totals.get("WEBSITE_CLICKS", 0),
+        "calls": totals.get("CALL_CLICKS", 0),
+        "directions": totals.get("BUSINESS_DIRECTION_REQUESTS", 0),
+    }
+
+
+@app.route("/api/reports/<slug>/performance", methods=["GET"])
+def api_reports_performance(slug):
+    """Read-only: connected client ka HISTORICAL (old) SEO performance, Google se live.
+    Report compile kiye bina — sirf dikhane ke liye. Koi write/publish nahi hota."""
+    from datetime import timedelta
+    c = get_client_or_404(slug)
+    if not c:
+        return err("Client nahi mila", 404)
+    creds = auth.load_credentials(slug)
+    if not creds:
+        return jsonify({"ok": False, "code": "not_connected",
+                        "error": "Client Google se connected nahi hai — pehle Connect Google karo."}), 200
+    if not c.get("location_id"):
+        return jsonify({"ok": False, "code": "no_location",
+                        "error": "Is client ki Google location link nahi hai — Clients page se location set karo."}), 200
+    try:
+        days = int(request.args.get("days", PERF_DEFAULT_DAYS))
+    except (TypeError, ValueError):
+        days = PERF_DEFAULT_DAYS
+    days = max(1, min(days, 365))
+    end = date.today()
+    start = end - timedelta(days=days - 1)
+    try:
+        from gmb.api import GBPClient
+        api = GBPClient(creds, dry_run=True)  # read-only: dry_run reads ko nahi rokta
+        resp = api.get_daily_metrics(f"locations/{c['location_id']}", PERF_METRICS, start, end)
+        return jsonify({"ok": True, "source": "google",
+                        "period": {"start": start.isoformat(), "end": end.isoformat()},
+                        "days": days, "stats": _sum_perf_totals(resp)})
+    except Exception as e:
+        log.warning("performance fetch fail %s: %s", slug, e)
+        return jsonify({"ok": False, "code": "data_unavailable",
+                        "error": "Google se live data nahi mila — API access/quota issue ho sakta hai (Basic Access approval ke baad try karo)."}), 200
+
+
 @app.route("/api/reports/<slug>/compile", methods=["POST"])
 def api_reports_compile(slug):
     c = get_client_or_404(slug)
